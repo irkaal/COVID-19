@@ -1,5 +1,6 @@
-import { BrowserModule } from '@angular/platform-browser';
+import { HttpClientModule } from '@angular/common/http';
 import { NgModule } from '@angular/core';
+import { BrowserModule } from '@angular/platform-browser';
 import { ScullyLibModule } from '@scullyio/ng-lib';
 
 import { AppRoutingModule } from './app-routing.module';
@@ -8,7 +9,7 @@ import { MapComponent } from './map/map.component';
 
 @NgModule({
   declarations: [AppComponent, MapComponent],
-  imports: [BrowserModule, AppRoutingModule, ScullyLibModule],
+  imports: [BrowserModule, AppRoutingModule, ScullyLibModule, HttpClientModule],
   providers: [],
   bootstrap: [AppComponent],
 })

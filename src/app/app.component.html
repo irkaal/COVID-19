@@ -1,1 +1,21 @@
-<router-outlet></router-outlet>
+<div class="container">
+  <div class="header">
+    <div class="title">
+      <a [routerLink]="['']">COVID-19 Tracker</a>
+    </div>
+    <div class="spacer"></div>
+    <div>
+      <a [routerLink]="['']">
+        <img
+          src="/assets/icons/info-circle-fill.svg"
+          alt="info-circle-fill"
+          width="16"
+          height="16"
+          title="Data information"
+        />
+      </a>
+    </div>
+  </div>
+
+  <router-outlet></router-outlet>
+</div>
