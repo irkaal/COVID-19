@@ -10,7 +10,7 @@
     "e2e": "ng e2e",
     "scully": "scully",
     "scully:serve": "scully serve",
-    "prod": "rimraf docs && ng build --prod && npm run scully -- --scanRoutes"
+    "prod": "rimraf docs && ng build --prod --base-href /covid-tracker/ && npm run scully -- --scanRoutes"
   },
   "private": true,
   "dependencies": {
