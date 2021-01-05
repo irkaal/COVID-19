@@ -1,0 +1,550 @@
+---
+title: "COVID-19 Time Series and Forecasting"
+output: github_document
+---
+
+## Objective
+
+In this project, I will perform a time series analysis on COVID-19 confirmed cases around the world and forecast the spread.
+
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(fable)
+library(feasts)
+library(ggfortify)
+library(here)
+library(tseries)
+library(tsibble)
+```
+
+
+## Load Data
+
+The data that I will be using was obtained from [Johns Hopkins University](https://github.com/CSSEGISandData/COVID-19).
+
+```{r}
+confirmed <- read_csv(here("forecast/data/raw/confirmed.csv"))
+```
+
+```{r}
+head(confirmed)
+```
+
+
+
+### Data Cleaning
+
+
+```{r}
+map_df(confirmed, ~sum(is.na(.)))
+```
+
+Looks like we have some missing Province/State values and there are no missing coordinates or case count values, we will not perform any data imputation.
+
+
+First, let's filter the data to only include Canadian cases.
+
+```{r}
+confirmed <- filter(confirmed, `Country/Region` == "Canada")
+select(confirmed, 1:4)
+```
+
+Let's look at all the Provinces/State values.
+
+```{r}
+pull(confirmed, `Province/State`)
+```
+
+Everything looks fine except for Diamond Princess, Grand Princess, and Recovered. Let's remove them from our data.
+
+```{r}
+confirmed <- filter(confirmed, !`Province/State` %in% c("Diamond Princess", "Grand Princess", "Recovered"))
+select(confirmed, 1:4)
+```
+
+
+To simplify the plots, we will abbreviate the `Province` names and rename `Province/State` to `Province` and drop the following columns: `Country/Region`, `Lat`, and `Long`.
+
+```{r}
+confirmed <- confirmed %>%
+  select(-c(`Country/Region`, Lat, Long)) %>%
+  rename(Province = `Province/State`) %>%
+  mutate(
+    Province = factor(
+      recode(
+        Province,
+        "Alberta" = "AB",
+        "British Columbia" = "BC",
+        "Manitoba" = "MB",
+        "New Brunswick" = "NB",
+        "Newfoundland and Labrador" = "NL",
+        "Nova Scotia" = "NS",
+        "Ontario" = "ON",
+        "Prince Edward Island" = "PE",
+        "Quebec" = "QB",
+        "Saskatchewan" = "SK",
+        "Northwest Territories" = "NT",
+        "Yukon" = "YT"
+      )
+    )
+  )
+select(confirmed, 1:4)
+```
+
+
+```{r}
+names(confirmed)
+```
+
+The column names after `Province` are dates. These column names represent the values of the date variable and each row represents 100 observations, not one. Let's gather those columns into two new columns, `date` and `cases`. Some might say this is a conversion from a wide format data into a long format data.
+
+```{r}
+confirmed <- pivot_longer(confirmed, -Province, names_to = "date", values_to = "cases")
+head(confirmed)
+```
+
+Next, let's convert the `date` column data type from `<chr>` to `<date>` and `cases` from `<dbl>` to `<int>`.
+
+```{r}
+confirmed <- mutate(
+  confirmed,
+  date = as_date(date, format = "%m/%d/%y"),
+  cases = as.integer(cases),
+)
+head(confirmed)
+```
+
+
+Next, let's convert our data type from `tibble` into `tsibble`.
+
+```{r}
+confirmed <- as_tsibble(confirmed, index = date, key = Province, validate = F)
+head(confirmed)
+```
+
+
+
+## Exploratory Data Analysis
+
+In this section, I will explore the COVID-19 data related to cases in Canada.
+
+
+### Distribution by Province
+
+```{r}
+confirmed %>%
+  filter(date == mdy("4/30/20")) %>%
+  mutate(Province = fct_reorder(Province, cases, .desc = T)) %>%
+  ggplot(aes(x = reorder(Province, cases), y = cases)) +
+  geom_bar(aes(color = Province, fill = Province), stat = "identity") +
+  labs(
+    title = "COVID-19 Confirmed Cases in Canada",
+    x = NULL,
+    y = "Confirmed Cases"
+  ) +
+  theme(legend.position = "none") +
+  scale_y_continuous(labels = label_number_si()) +
+  coord_flip()
+```
+
+Let's log-transform the data
+
+```{r}
+confirmed %>%
+  filter(date == mdy("4/30/20")) %>%
+  mutate(Province = fct_reorder(Province, cases, .desc = T)) %>%
+  ggplot(aes(x = reorder(Province, cases), y = cases)) +
+  geom_bar(aes(color = Province, fill = Province), stat = "identity") +
+  labs(
+    title = "COVID-19 Confirmed Cases in Canada",
+    x = NULL,
+    y = "Confirmed Cases (Logarithmic)"
+  ) +
+  theme(legend.position = "none") +
+  coord_flip() +
+  scale_y_log10()
+```
+
+Even though it's less representative of the real data, with this log-transformed data, we can better compare the counts between provinces. We can see that Quebec has the highest count, followed by Ontario, Alberta, and British Columbia.
+
+
+
+
+### Confirmed Cases
+
+```{r}
+confirmed %>%
+  mutate(Province = fct_reorder2(Province, date, cases)) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = Province)) +
+  labs(
+    title = "COVID-19 Confirmed Cases in Canada",
+    x = "Date",
+    y = "Confirmed Cases"
+  ) +
+  scale_y_continuous(labels = label_number_si())
+```
+
+Once again, let's look at the log-transformed plot.
+
+```{r}
+confirmed %>%
+  mutate(Province = fct_reorder2(Province, date, cases)) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = Province)) +
+  labs(
+    title = "COVID-19 Confirmed Cases in Canada",
+    x = "Date",
+    y = "Confirmed Cases (Logarithmic)"
+  ) +
+  scale_y_log10()
+```
+
+From the log-transformed plot, we can see that the first case in Canada was observed in Ontario, followed by British Columbia and Quebec. Looks like British Columbia is handling the spread in the region pretty well compared to other provinces. This is evident from the trends shown by other provinces like Quebec and Alberta. This is likely due to the earlier response to the virus initiated by the BC government. 
+
+Looking at the trend on the log-transformed plot, we can see the exponentially increasing rate in March until mid to end of March where most provinces start to show a lower rate or close to a linear rate in spread. Additionally, we can also see that provinces like Quebec, Ontario, Alberta, and Nova Scotia are still showing a higher rate compared to other provinces in late April.
+
+I would also like to note that the population of each province in Canada can differ greatly. For example, the population of Prince Edward Island (PE) only has around 140-150 thousand while provinces like Ontario has a population of over 14 million people. Additionally, we can also take into account the density for each province. I will explore this in the next section.
+
+
+### How population and land area affects spread
+
+
+I will be using population data from [Statistics Canada](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000901).
+
+#### Population Data
+
+```{r}
+population <- read_csv(here("forecast/data/raw/population.csv"))
+```
+
+```{r}
+population <- population %>%
+  filter(REF_DATE == "2020-01" & !GEO %in% c("Canada", "Nunavut")) %>%
+  mutate(
+    Province = factor(
+      recode(
+        GEO,
+        "Alberta" = "AB",
+        "British Columbia" = "BC",
+        "Manitoba" = "MB",
+        "New Brunswick" = "NB",
+        "Newfoundland and Labrador" = "NL",
+        "Nova Scotia" = "NS",
+        "Ontario" = "ON",
+        "Prince Edward Island" = "PE",
+        "Quebec" = "QB",
+        "Saskatchewan" = "SK",
+        "Northwest Territories" = "NT",
+        "Yukon" = "YT"
+      )
+    ),
+    Population = VALUE,
+  ) %>%
+  select(Province, Population) %>%
+  arrange(desc(Population))
+head(population)
+```
+
+#### Land Area Data
+
+Next, I will use land area data from [Statistics Canada](https://www150.statcan.gc.ca/n1/pub/11-402-x/2012000/chap/geo/tbl/tbl06-eng.htm). The data was recorded in square kilometers.
+
+
+```{r}
+area <- read_csv(here("forecast/data/raw/area.csv"))
+```
+
+Since the virus is more likely to spread on land, I will only consider land area.
+
+```{r}
+area <- area %>%
+  filter(!GEO %in% c("Canada", "Nunavut")) %>%
+  mutate(
+    Province = factor(
+      recode(
+        GEO,
+        "Alberta" = "AB",
+        "British Columbia" = "BC",
+        "Manitoba" = "MB",
+        "New Brunswick" = "NB",
+        "Newfoundland and Labrador" = "NL",
+        "Nova Scotia" = "NS",
+        "Ontario" = "ON",
+        "Prince Edward Island" = "PE",
+        "Quebec" = "QB",
+        "Saskatchewan" = "SK",
+        "Northwest Territories" = "NT",
+        "Yukon" = "YT"
+      )
+    ),
+    Area = LAND,
+  ) %>%
+  select(Province, Area) %>%
+  arrange(desc(Area))
+head(area)
+```
+
+Now let's join the `confirmed` table with `population` and `area` tables.
+
+```{r}
+confirmed <- confirmed %>%
+  left_join(population, by = "Province") %>%
+  left_join(area, by = "Province")
+head(confirmed)
+```
+
+
+#### Confirmed Cases per Square Kilometer
+
+```{r}
+confirmed %>%
+  mutate(
+    `Cases/Area` = cases / Area,
+    Province = fct_reorder2(Province, date, `Cases/Area`)
+  ) %>%
+  ggplot(aes(x = date, y = `Cases/Area`)) +
+  geom_line(aes(color = Province)) +
+  labs(
+    title = "COVID-19 Confirmed Cases per Square Kilometre in Canada",
+    x = "Date",
+    y = "Confirmed Cases per Square Kilometre"
+  )
+```
+
+This plot provides a different perspective, we can see that lower land area does not always equate to lower the spread rate. For example, provinces like Nova Scotia and Prince Edward Island are in the top 5 with higher confirmed cases count per square kilometers than British Columbia. In other words, even though Nova Scotia is 25 times smaller than Quebec, the chances of infection are close if we solely consider the number of cases per square km as the main factor.
+
+
+#### Confirmed Cases Ratio
+
+```{r}
+confirmed %>%
+  mutate(
+    `Cases/Population` = cases / Population,
+    Province = fct_reorder2(Province, date, `Cases/Population`)
+  ) %>%
+  ggplot(aes(x = date, y = `Cases/Population`)) +
+  geom_line(aes(color = Province)) +
+  labs(
+    title = "COVID-19 Confirmed Cases Ratio in Canada",
+    x = "Date",
+    y = "Confirmed Cases Ratio"
+  )
+```
+
+Here we can see that Quebec has the highest infection ratio of around 0.0053. In other words, about 0.35% of Quebecers are infected at the end of April. It is way higher than the other provinces. This plot shows a slightly similar trend as we usually expect the population size to increase as the land area increases. It's not always the case, but usually, it is.
+
+Interestingly, Alberta seems to have a higher infection ratio than Ontario. This means that even though the population density in Alberta is lower than Toronto, people are more likely to get an infection in Alberta than Toronto if we only consider the land area and population size as the only factors for the virus to spread. Let's explore this more by looking at the population density of each province.
+
+
+#### Confirmed Cases per Density
+
+```{r}
+confirmed %>%
+  filter(date == mdy("4/30/20")) %>%
+  mutate(Density = Population / Area) %>%
+  ggplot(aes(x = reorder(Province, Density), y = Density)) +
+  geom_bar(aes(fill = cases), stat = "identity") +
+  labs(
+    title = "Population Density in Canada",
+    x = "Province",
+    y = "Density (per Square Kilometre)",
+    fill = "Confirmed Cases"
+  ) +
+  coord_flip()
+```
+
+
+```{r}
+confirmed %>%
+  mutate(
+    `Cases/Density` = cases / (Population / Area),
+    Province = fct_reorder2(Province, date, `Cases/Density`)
+  ) %>%
+  ggplot(aes(x = date, y = `Cases/Density`)) +
+  geom_line(aes(color = Province)) +
+  labs(
+    title = "COVID-19 Confirmed Cases per Density in Canada",
+    x = "Date",
+    y = "Confirmed Cases per Density"
+  ) +
+  scale_y_continuous(labels = label_number_si())
+```
+
+Now, if we take into account both land area and population or density, we see that Quebec still has the highest rate, followed by Ontario, Alberta, and British Columbia. This means that it is very way more likely to get infected in Quebec than in Ontario or Alberta. Interestingly, Prince Edward Island and Nova Scotia which are the top two provinces with the highest population density do not have high confirmed cases considering their high population densities.
+
+
+
+## Analysis (Box-Jenkins Methodology)
+
+In this section, I will use the Box-Jenkins methodology to forecast the spread of COVID-19 in British Columbia using the last 50 observations (12 Mar. 2020 to 30 Apr. 2020).
+
+
+### Model Indentification
+
+```{r}
+confirmed <- confirmed %>%
+  filter(Province == "BC", date >= mdy("03/12/20")) %>%
+  select(Province, date, cases)
+head(confirmed)
+```
+
+#### Time Series, ACF, and PACF Plots
+
+```{r}
+gg_tsdisplay(confirmed, cases, plot_type = "partial") + labs(title = "Ensemble of Time Series Plots")
+```
+
+
+The time series is mostly likely non-stationary as we can see an obvious increasing trend.
+
+Let's use the first differencing to eliminate the trend. Additionally, I will only use non-zero observations.
+
+
+#### First Differenced Time Series, ACF, and PACF plots
+
+```{r}
+first_diff <- confirmed %>%
+  mutate(cases = difference(cases)) %>%
+  filter(!is.na(cases))
+gg_tsdisplay(first_diff, cases, plot_type = "partial") + labs(title = "Ensemble of First Differenced Time Series Plots")
+```
+
+The series seems to closer to stationary as we can see that the mean varies less. However, it is still unclear as to whether the series is stationary or not.
+
+We see that the ACF cuts off at lag 1 and PACF cuts of at lag 1. Even though the PACF value at lag 3 is significant, we can generally see that after lag 1 both ACF and PACF values decay quickly.
+
+
+##### Augmented Dickey-Fuller Test
+
+Let's test whether the first differenced time series is stationary.
+
+```{r}
+first_diff %>%
+  pull(cases) %>%
+  as.ts() %>%
+  adf.test()
+```
+
+Since the p-value (0.1592) is greater than 0.05, we do not have sufficient evidence to reject the null hypothesis that the series has a unit root. Thus, it might not be stationary.
+
+
+#### Second Differenced Time Series, ACF, and PACF plots
+
+```{r}
+second_diff <- first_diff %>%
+  mutate(cases = difference(cases)) %>%
+  filter(!is.na(cases))
+gg_tsdisplay(second_diff, cases, plot_type = "partial") + labs(title = "Ensemble of Second Differenced Time Series Plots")
+```
+
+The series seems to be stationary as we can it has a constant mean close to zero.
+
+The ACF cuts of at lag 1 and the PACF cuts of at lag 2, one possible model would be ARIMA(2, 2, 0).
+
+
+##### Augmented Dickey-Fuller Test
+
+Let's test whether the first differenced time series is stationary.
+
+```{r}
+second_diff %>%
+  pull(cases) %>%
+  as.ts() %>%
+  adf.test()
+```
+
+Since the p-value (< 0.01) is less than 0.05, we have sufficient evidence to reject the null hypothesis that the series has a unit root. Thus, the second differenced series is likely to be stationary.
+
+
+
+### Modeling & Estimation
+
+#### Time Series Cross Validation
+
+```{r, message=FALSE, warning=FALSE}
+results <- data.frame(matrix(nrow = 0, ncol = 3, dimnames = list(c(), c("p", "q", "CV RMSE"))))
+for (p in 1:4) {
+  for (q in 0:4) {
+    # Fold
+    confirmed_tr <- confirmed %>%
+      slice(1:(n() - 1)) %>%
+      stretch_tsibble(.init = 3, .step = 1)
+    # Forecast
+    fc <- confirmed_tr %>%
+      model(ARIMA(cases ~ 1 + pdq(p, 2, q) + PDQ(0, 0, 0))) %>%
+      forecast(h = 1)
+    # Accuracy
+    rmse <- fc %>%
+      accuracy(confirmed) %>%
+      select(RMSE)
+    # Save results
+    results[(nrow(results) + 1), ] <- c(p, q, rmse)
+  }
+}
+```
+
+#### CV RSME
+
+```{r}
+results %>%
+  as_tibble() %>%
+  arrange(CV.RMSE)
+```
+
+
+### Diagnostic Checking
+
+#### Fit Best Model
+
+```{r}
+mable <- model(confirmed, ARIMA(cases ~ 1 + pdq(4, 2, 0) + PDQ(0, 0, 0)))
+mable
+```
+
+
+#### Residual Analysis
+
+```{r}
+gg_tsresiduals(mable) + labs(title = "Time Series Residual Plots")
+```
+
+```{r}
+p_values <- as.numeric(
+  sapply(1:10, function(x) ljung_box(residuals(mable)$.resid, lag = x)[2])
+)
+ljung <- data.frame(Lag = 1:10, p_values = p_values)
+ggplot(ljung) +
+  geom_point(aes(x = Lag, y = p_values)) +
+  labs(title = "P-values for Ljung-Box statistic", y = "P-values") +
+  ylim(c(0, 1))  
+```
+
+
+We can see that there is no pattern apparent in the residuals analysis plot. The ACF values are not significant for lags other than 0. The p-values for the Ljung-Box test are also large suggesting nothing untoward about the fit of the model. Hence, I will use the ARIMA(4,2,0) to forecast the next 7 confirmed cases in British Columbia (May 1st, 2020 to May 7th, 2020).
+
+
+### Forecast
+
+```{r}
+mable %>%
+  forecast(h = 7) %>%
+  autoplot(confirmed) +
+  labs(
+    title = "COVID-19 Confirmed Cases in BC Forecast",
+    x = "Date",
+    y = "Confirmed Cases"
+  )
+```
+
+
+### Conclusion
+
+Forecasting the spread of a pandemic is difficult. We might understand the factors that contribute to it, but we know that the data is limited and can be misleading. It is known that the data is currently underestimating the real count and we know that different countries are handling the pandemic differently. Thus, the data from countries that are not testing rigorously would be less accurate than those coming from countries that are testing rigorously. Furthermore, the media affects how people behave and how the virus spreads. We did not take that into account here.
+
+I do not think it's impossible to accurately model a pandemic spread. One example would be the [compartmental models in epidemiology](https://en.wikipedia.org/wiki/Compartmental_models_in_epidemiology). One of the simplest models is the SIR model. All in all, I believe that Time Series models are still accurate on applications where the conditions for them to perform well are met.
