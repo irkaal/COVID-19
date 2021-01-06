@@ -6,11 +6,6 @@ import { Observable } from 'rxjs';
   providedIn: 'root',
 })
 export class DataService {
-  private readonly DATA_LINK: string =
-    'https://cors-anywhere.herokuapp.com/' +
-    'https://github.com/microsoft/Bing-COVID-19-Data/raw/master/data/' +
-    'Bing-COVID19-Data.csv';
-
   constructor(private _httpClient: HttpClient) {}
 
   public getData(): Promise<{
@@ -31,7 +26,9 @@ export class DataService {
   private downloadData(): Observable<string> {
     console.log('Downloading data...');
 
-    return this._httpClient.get(this.DATA_LINK, { responseType: 'text' });
+    return this._httpClient.get('assets/data/data.csv', {
+      responseType: 'text',
+    });
   }
 
   private parseData(

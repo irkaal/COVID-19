@@ -57,7 +57,7 @@ export class MapComponent implements OnInit {
       const lon = Number(crData.Longitude[crData.Longitude.length - 1]);
       const confirmed = Number(crData.Confirmed[crData.Confirmed.length - 1]);
       L.circleMarker([lat, lon], {
-        radius: Math.log1p(confirmed),
+        radius: Math.sqrt(Math.sqrt(confirmed)),
         weight: 0,
         color: 'rgba(222,55,0,1)',
       }).addTo(this._map);
