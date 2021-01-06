@@ -9,6 +9,8 @@ import { DataService } from '../data.service';
   styleUrls: ['./map.component.scss'],
 })
 export class MapComponent implements OnInit {
+  private _isDarkLayer!: boolean;
+  private _layer!: L.Layer;
   private _map!: L.Map;
   private _mapData!: {
     [Country_Region: string]: {
@@ -26,22 +28,29 @@ export class MapComponent implements OnInit {
     });
   }
 
+  public updateTile(): void {
+    this._isDarkLayer = !this._isDarkLayer;
+    if (this._layer) this._map.removeLayer(this._layer);
+    this._layer = L.tileLayer(
+      `https://tiles.stadiamaps.com/tiles/${
+        this._isDarkLayer ? 'alidade_smooth_dark' : 'alidade_smooth'
+      }/{z}/{x}/{y}{r}.png`,
+      {
+        maxZoom: 20,
+        attribution: `
+          &copy; <a href="https://stadiamaps.com/">Stadia Maps</a>,
+          &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a>
+          &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors`,
+      }
+    ).addTo(this._map);
+  }
+
   private initMap(): void {
     this._map = L.map('map', {
-      center: [39.8282, -98.5795],
+      center: [30, 0],
       zoom: 3,
     });
-
-    const tiles = L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        maxZoom: 19,
-        attribution:
-          '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      }
-    );
-
-    tiles.addTo(this._map);
+    this.updateTile();
   }
 
   private addMarkers(): void {
@@ -59,7 +68,8 @@ export class MapComponent implements OnInit {
       L.circleMarker([lat, lon], {
         radius: Math.sqrt(Math.sqrt(confirmed)),
         weight: 0,
-        color: 'rgba(222,55,0,1)',
+        fillOpacity: 0.3,
+        color: 'rgb(255, 64, 129)',
       }).addTo(this._map);
     });
   }

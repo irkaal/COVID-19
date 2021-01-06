@@ -1,3 +1,19 @@
+<div class="header">
+  <div class="title">
+    <a [routerLink]="['']">COVID-19 Tracker</a>
+  </div>
+  <div class="spacer"></div>
+  <div class="toggle">
+    <mat-slide-toggle
+      [checked]="true"
+      (change)="updateTile()"
+    ></mat-slide-toggle>
+  </div>
+  <div>
+    <a href="https://www.bing.com/covid">Data from Bing</a>
+  </div>
+</div>
+
 <div class="map-container">
   <div class="map-frame">
     <div id="map"></div>

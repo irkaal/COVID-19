@@ -1,3 +1,30 @@
+.header {
+  display: flex;
+  align-items: center;
+  padding: 12px 24px;
+  border-bottom: 1px solid #ddd;
+  height: 44px;
+
+  .title {
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 24px;
+
+    a {
+      color: #000000;
+      text-decoration: none;
+    }
+  }
+
+  .spacer {
+    flex: 1 0 auto;
+  }
+
+  .toggle {
+    margin-right: 1rem;
+  }
+}
+
 .map-container {
   position: absolute;
   top: 69px;
